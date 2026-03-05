@@ -1,48 +1,40 @@
-# 🏃‍♀️ Runner - Projeto de Inteligência Artificial
+# 🧠 Simulação de IA: Busca Heurística com A* (A-Estrela)
 
-Um jogo *side-scroller* estilo "Endless Runner" desenvolvido em Python utilizando a biblioteca Pygame. O jogo possui progressão de dificuldade, geração controlada de inimigos e um final comemorativo em sistema de partículas.
+Este projeto é uma simulação de *Pathfinding* (Busca de Caminhos) desenvolvida em Python com a biblioteca Pygame. O objetivo do agente (personagem) é encontrar a rota mais eficiente do ponto inicial até a linha de chegada, desviando de obstáculos gerados proceduralmente.
 
-Projeto desenvolvido como requisito para a disciplina de Inteligência Artificial, ministrada pela Professora Ana Marina.
+Projeto desenvolvido como requisito para a disciplina de **Inteligência Artificial**, ministrada pela **Professora Ana Marina**.
 
-## 🎮 O Jogo
-O jogador controla uma personagem que deve pular obstáculos (caracóis e moscas) que aparecem em velocidades crescentes. Sobreviva tempo o suficiente para alcançar a linha de chegada e vencer o jogo!
+## 🎯 O Problema
+O agente encontra-se em um ambiente bidimensional (Grid) desconhecido, que gera "paredões" de obstáculos com passagens (buracos) em posições aleatórias. O desafio é calcular matematicamente a melhor rota até o objetivo sem colidir com os obstáculos, executando o trajeto em tempo real.
 
-### ✨ Principais Funcionalidades
-* **Máquina de Estados Finitos (FSM):** Arquitetura do jogo dividida em estados isolados (`START`, `PLAYING`, `FINISHING`, `GAME_OVER`, `VICTORY`), garantindo um código limpo e sem bugs de transição.
-* **Dificuldade Dinâmica:** A velocidade dos inimigos aumenta progressivamente de acordo com o tempo de sobrevivência do jogador.
-* **Spawn Inteligente:** Sistema de geração de inimigos com intervalos de tempo aleatórios (randomização do Pygame Timer), mas posições fixas de saída, prevenindo a criação de "armadilhas impossíveis" de esquivar.
-* **Animações e Gravidade:** Física simples de pulo e troca de sprites animadas para o jogador e inimigos.
-* **Sistema de Partículas Customizado:** Chuva de confetes gerada matematicamente no código (sem uso de imagens externas) durante a transição para a tela de vitória.
+## 🤖 Inteligência Artificial Aplicada
+
+Para resolver o labirinto, o projeto implementa o algoritmo de busca heurística **A\* (A-Estrela)**. Ele é ideal para essa simulação pois não faz uma busca "cega", mas sim uma busca informada e otimizada baseada na função de custo:
+
+**`f(n) = g(n) + h(n)`**
+
+Onde:
+* **`g(n)`**: É o custo exato do caminho do ponto de partida até o nó atual `n`.
+* **`h(n)`**: É a nossa **Heurística**. 
+* **`f(n)`**: É o custo total estimado. O algoritmo sempre expande o nó com o menor `f(n)`.
+
+### A Heurística: Distância de Manhattan
+Como a movimentação do nosso agente ocorre em uma grade (movimentos verticais e horizontais prioritários), a heurística escolhida foi a **Distância de Manhattan**. O algoritmo calcula a distância absoluta em blocos de `X` e `Y` entre a posição testada e a linha de chegada, "puxando" a busca na direção correta e poupando processamento.
+
+## ✨ Funcionalidades
+* **Geração Procedural:** A cada nova execução, o mapa cria barreiras verticais com passagens aleatórias, garantindo que a IA sempre enfrente um problema inédito.
+* **Cálculo em Tempo Real:** O algoritmo varre o mapa e encontra a saída em milissegundos assim que o cenário é gerado.
+* **Modo Apresentação (Visualização de Rota):** É possível alternar a visibilidade da linha vermelha que representa a rota calculada pela heurística, facilitando a explicação didática do algoritmo operando por baixo dos panos.
 
 ## 🛠️ Tecnologias Utilizadas
 * **Python 3.x**
-* **Pygame** (Manipulação de gráficos, eventos e áudio)
-* **Dotenv** (Gerenciamento de variáveis de ambiente)
+* **Pygame** (Manipulação de gráficos e renderização do grid)
+* **Dotenv** (Gerenciamento de ambiente, conforme estrutura base)
 
-## 📁 Estrutura do Projeto
-Certifique-se de que os arquivos de mídia estão organizados na seguinte estrutura antes de rodar o jogo:
+## 🚀 Como Executar
 
-```text
-/
-├── graphics/
-│   ├── Girl/          # Sprites do jogador (walking/, jumping/)
-│   ├── Fly/           # Sprites da mosca
-│   ├── snail/         # Sprites do caracol
-│   ├── Sky.png        # Fundo
-│   ├── ground.png     # Chão
-│   ├── game_start.png # Tela inicial
-│   ├── game_over1.png # Tela de derrota
-│   └── chegada.png    # Sprite da linha de chegada
-├── audio/
-│   └── jump.mp3       # Efeito sonoro do pulo
-├── font/
-│   └── Pixeltype.ttf  # Fonte customizada do jogo
-├── main.py            # Código principal do jogo
-└── requirements.txt   # Dependências do projeto
-🚀 Como Executar
-Clone este repositório:
-
-Bash
+1. Clone este repositório:
+```bash
 git clone [https://github.com/gabriellina640/runner_py.git](https://github.com/gabriellina640/runner_py.git)
 Entre na pasta do projeto:
 
@@ -52,23 +44,14 @@ Instale as dependências necessárias utilizando o arquivo requirements.txt:
 
 Bash
 pip install -r requirements.txt
-Execute o arquivo principal:
+Execute a simulação:
 
 Bash
 python main.py
-⌨️ Controles
-ESPAÇO: Pular
+⌨️ Controles da Simulação
+1 (Número Um): Gera um novo mapa procedural e inicia o cálculo da IA.
 
-1 (Número Um): Iniciar jogo / Reiniciar jogo após Game Over ou Vitória.
+H: Oculta/Mostra a linha vermelha da rota traçada pela Heurística (Excelente para demonstrações ao vivo).
 
 👨‍💻 Autor
 Desenvolvido por Gabriel.
-
-
----
-
-**Dica extra:** Não se esqueça de criar o arquivo `requirements.txt` na raiz da pasta do seu projeto (junto com o `main.py`) com o seguinte conteúdo, para que o comando de instalação funcione perfeitamente para quem baixar:
-
-```text
-pygame
-python-dotenv
