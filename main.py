@@ -33,7 +33,7 @@ def load_images(path, prefix, count, scale=1):
             images.append(image)
         except FileNotFoundError:
             surf = pygame.Surface((CELL_SIZE, CELL_SIZE))
-            surf.fill('Blue') # Cor padrão se faltar imagem
+            surf.fill('Blue') # Cor padrão se faltar a imagem da garota
             images.append(surf)
     return images
 
@@ -160,12 +160,15 @@ class Player(pygame.sprite.Sprite):
         return True 
 
 class Obstacle(pygame.sprite.Sprite):
-    def __init__(self, col, row, obs_type):
+    def __init__(self, col, row):
         super().__init__()
-        if obs_type == 'fly':
-            img = pygame.image.load('./graphics/Fly/Fly1.png').convert_alpha()
-        else:
-            img = pygame.image.load('./graphics/snail/snail1.png').convert_alpha()
+        try:
+            # Carrega a imagem padronizada do obstáculo
+            img = pygame.image.load('./graphics/obstaculo.png').convert_alpha()
+        except FileNotFoundError:
+            # Se você esquecer de colocar a imagem lá, ele desenha um quadrado vermelho para avisar
+            img = pygame.Surface((CELL_SIZE, CELL_SIZE))
+            img.fill('#FF5252')
             
         # Ajusta a imagem para caber perfeitamente no bloco do grid
         self.image = pygame.transform.scale(img, (CELL_SIZE, CELL_SIZE))
@@ -180,7 +183,7 @@ class FinishLine(pygame.sprite.Sprite):
             self.rect = self.image.get_rect(center=(col * CELL_SIZE + CELL_SIZE//2, row * CELL_SIZE + CELL_SIZE//2))
         except:
             self.image = pygame.Surface((CELL_SIZE, CELL_SIZE * 3))
-            self.image.fill('Green')
+            self.image.fill('#4CAF50')
             self.rect = self.image.get_rect(center=(col * CELL_SIZE + CELL_SIZE//2, row * CELL_SIZE + CELL_SIZE//2))
 
 # --- Jogo Principal ---
@@ -233,8 +236,8 @@ class Game:
         
         self.obstacle_group = pygame.sprite.Group()
         for col, row in self.obstacles_pos:
-            tipo = 'fly' if row < ROWS // 2 else 'snail'
-            self.obstacle_group.add(Obstacle(col, row, tipo))
+            # Chama o obstáculo sem precisar passar tipo (mosca/caracol)
+            self.obstacle_group.add(Obstacle(col, row))
             
         self.finish_group = pygame.sprite.GroupSingle()
         self.finish_group.add(FinishLine(self.goal_pos[0], self.goal_pos[1]))
@@ -301,7 +304,7 @@ class Game:
             
             elif self.state == 'VICTORY':
                 self.draw_path_line()
-                text = self.custom_font.render("OBJETIVO ALCANCADO! (Pressione 1 para novo labirinto)", False, 'Green')
+                text = self.custom_font.render("OBJETIVO ALCANCADO! (Pressione 1 para novo labirinto)", False, '#4CAF50')
                 self.screen.blit(text, (WIDTH//2 - text.get_width()//2, 50))
 
             if self.state != 'START':
