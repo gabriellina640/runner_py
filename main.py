@@ -1,12 +1,17 @@
 import os
 import sys
 import pygame
-from random import randint, choice
+from random import randint
 
 # Ocultar prompt do pygame no terminal
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
-user_name = input("Projeto feito para da matéria de Inteligência Artificial, Professora Ana Marina. Digite seu nome para começar: ")
+# --- CONFIGURAÇÕES DA TELA E GRID ---
+WIDTH = 1200
+HEIGHT = 600
+CELL_SIZE = 40
+COLS = WIDTH // CELL_SIZE   # 30 colunas
+ROWS = HEIGHT // CELL_SIZE  # 15 linhas
 
 # --- Funções Utilitárias ---
 def resource_path(relative_path):
@@ -16,330 +21,297 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-def load_images(path, prefix, count, scale=2):
+def load_images(path, prefix, count, scale=1):
     images = []
     for i in range(1, count + 1):
         img_path = os.path.join(path, f"{prefix}{i}.png")
         try:
             image = pygame.image.load(img_path).convert_alpha()
-            if scale == 2:
-                image = pygame.transform.scale2x(image)
-            elif scale != 1:
+            if scale != 1:
                 w, h = image.get_size()
-                image = pygame.transform.scale(image, (w * scale, h * scale))
+                image = pygame.transform.scale(image, (int(w * scale), int(h * scale)))
             images.append(image)
         except FileNotFoundError:
-            surf = pygame.Surface((50, 50))
-            surf.fill('Red')
+            surf = pygame.Surface((CELL_SIZE, CELL_SIZE))
+            surf.fill('Blue') # Cor padrão se faltar imagem
             images.append(surf)
     return images
 
-# --- Classes dos Atores (Sprites) ---
-class Player(pygame.sprite.Sprite):
-    def __init__(self):
-        super().__init__()
-        self.player_index = 0
-        self.player_jumping_index = 0
-        self.gravity = 0
+# --- Algoritmo de Busca A* (A-Estrela) ---
+class Node:
+    def __init__(self, col, row, parent=None):
+        self.col = col
+        self.row = row
+        self.parent = parent
+        self.g = 0 
+        self.h = 0 
+        self.f = 0 
+
+def heuristica_manhattan(node_atual, node_objetivo):
+    return abs(node_atual.col - node_objetivo.col) + abs(node_atual.row - node_objetivo.row)
+
+def a_star(start_col, start_row, goal_col, goal_row, obstacles):
+    start_node = Node(start_col, start_row)
+    goal_node = Node(goal_col, goal_row)
+    
+    open_list = [start_node]
+    closed_list = set()
+    
+    while open_list:
+        current_node = min(open_list, key=lambda o: o.f)
+        open_list.remove(current_node)
+        closed_list.add((current_node.col, current_node.row))
         
-        self.player_walk = load_images('./graphics/Girl/walking', 'walk', 12, scale=1)
-        self.player_jumping = load_images('./graphics/Girl/jumping', 'jumping', 4, scale=1)
+        if current_node.col == goal_node.col and current_node.row == goal_node.row:
+            path = []
+            current = current_node
+            while current is not None:
+                path.append((current.col, current.row))
+                current = current.parent
+            return path[::-1]
+            
+        vizinhos = [(0, -1), (0, 1), (-1, 0), (1, 0), (-1, -1), (1, -1), (-1, 1), (1, 1)]
+        for move in vizinhos:
+            node_col = current_node.col + move[0]
+            node_row = current_node.row + move[1]
+            
+            # Limites da tela inteira
+            if node_col < 0 or node_col >= COLS or node_row < 0 or node_row >= ROWS:
+                continue
+                
+            if (node_col, node_row) in obstacles:
+                continue
+                
+            if (node_col, node_row) in closed_list:
+                continue
+                
+            novo_node = Node(node_col, node_row, current_node)
+            custo_passo = 1.4 if move[0] != 0 and move[1] != 0 else 1.0 
+            novo_node.g = current_node.g + custo_passo
+            novo_node.h = heuristica_manhattan(novo_node, goal_node)
+            novo_node.f = novo_node.g + novo_node.h
+            
+            is_in_open = False
+            for open_node in open_list:
+                if novo_node.col == open_node.col and novo_node.row == open_node.row and novo_node.g > open_node.g:
+                    is_in_open = True
+                    break
+            
+            if not is_in_open:
+                open_list.append(novo_node)
+                
+    return None 
 
-        self.image = self.player_walk[self.player_index] if self.player_walk else pygame.Surface((50,50))
-        self.rect = self.image.get_rect(midbottom=(80, 300))
+# --- Classes Visuais ---
+class Player(pygame.sprite.Sprite):
+    def __init__(self, start_col, start_row):
+        super().__init__()
+        self.walk_frames = load_images('./graphics/Girl/walking', 'walk', 12, scale=1)
+        self.image = self.walk_frames[0] if self.walk_frames else pygame.Surface((CELL_SIZE, CELL_SIZE))
+        
+        self.col = start_col
+        self.row = start_row
+        self.rect = self.image.get_rect(center=self.get_pixel_pos())
+        
+        self.path = []
+        self.path_index = 0
+        self.anim_index = 0
+        
+        self.pixel_x = self.rect.x
+        self.pixel_y = self.rect.y
+        self.speed = 8 
 
-        try:
-            self.jump_sound = pygame.mixer.Sound('./audio/jump.mp3')
-            self.jump_sound.set_volume(0.1)
-        except FileNotFoundError:
-            self.jump_sound = None
+    def get_pixel_pos(self):
+        return (self.col * CELL_SIZE + CELL_SIZE//2, self.row * CELL_SIZE + CELL_SIZE//2)
 
-    def player_input(self):
-        keys = pygame.key.get_pressed()
-        if keys[pygame.K_SPACE] and self.rect.bottom >= 300:
-            self.gravity = -16
-            if self.jump_sound:
-                self.jump_sound.play()
-
-    def apply_gravity(self):
-        self.gravity += 1
-        self.rect.y += self.gravity
-        if self.rect.bottom >= 300:
-            self.rect.bottom = 300
-
-    def player_animation(self):
-        if self.rect.bottom < 300:
-            self.player_jumping_index += 0.15
-            if self.player_jumping_index >= len(self.player_jumping):
-                self.player_jumping_index = len(self.player_jumping) - 1
-            self.image = self.player_jumping[int(self.player_jumping_index)]
-        else:
-            self.player_index += 0.25
-            if self.player_index >= len(self.player_walk):
-                self.player_index = 0
-            self.image = self.player_walk[int(self.player_index)]
-
-    def update(self):
-        self.player_input()
-        self.apply_gravity()
-        self.player_animation()
-
-    def reset_position(self):
-        self.rect.midbottom = (80, 300)
-        self.gravity = 0
+    def follow_path_smoothly(self):
+        if self.path and self.path_index < len(self.path):
+            target_col, target_row = self.path[self.path_index]
+            target_x = target_col * CELL_SIZE + CELL_SIZE//2 - self.rect.width//2
+            target_y = target_row * CELL_SIZE + CELL_SIZE//2 - self.rect.height//2
+            
+            self.anim_index += 0.3
+            if self.anim_index >= len(self.walk_frames):
+                self.anim_index = 0
+            self.image = self.walk_frames[int(self.anim_index)]
+            
+            moved = False
+            if abs(self.pixel_x - target_x) > self.speed:
+                self.pixel_x += self.speed if target_x > self.pixel_x else -self.speed
+                moved = True
+            else:
+                self.pixel_x = target_x
+                
+            if abs(self.pixel_y - target_y) > self.speed:
+                self.pixel_y += self.speed if target_y > self.pixel_y else -self.speed
+                moved = True
+            else:
+                self.pixel_y = target_y
+                
+            self.rect.x = int(self.pixel_x)
+            self.rect.y = int(self.pixel_y)
+            
+            if not moved:
+                self.col = target_col
+                self.row = target_row
+                self.path_index += 1
+                
+            return False 
+        return True 
 
 class Obstacle(pygame.sprite.Sprite):
-    def __init__(self, obstacle_type):
+    def __init__(self, col, row, obs_type):
         super().__init__()
-        self.animation_index = 0
-        
-        if obstacle_type == 'fly':
-            try:
-                fly_1 = pygame.image.load('./graphics/Fly/Fly1.png').convert_alpha()
-                fly_2 = pygame.image.load('./graphics/Fly/Fly2.png').convert_alpha()
-                self.frames = [fly_1, fly_2]
-            except FileNotFoundError:
-                surf = pygame.Surface((40, 30))
-                surf.fill('Blue')
-                self.frames = [surf, surf]
-            y_pos = 210
+        if obs_type == 'fly':
+            img = pygame.image.load('./graphics/Fly/Fly1.png').convert_alpha()
         else:
-            try:
-                snail_1 = pygame.image.load('./graphics/snail/snail1.png').convert_alpha()
-                snail_2 = pygame.image.load('./graphics/snail/snail2.png').convert_alpha()
-                self.frames = [snail_1, snail_2]
-            except FileNotFoundError:
-                surf = pygame.Surface((50, 40))
-                surf.fill('Green')
-                self.frames = [surf, surf]
-            y_pos = 300
-
-        self.image = self.frames[self.animation_index]
-        self.rect = self.image.get_rect(midbottom=(900, y_pos))
-
-    def animation_state(self):
-        self.animation_index += 0.1
-        if self.animation_index >= len(self.frames):
-            self.animation_index = 0
-        self.image = self.frames[int(self.animation_index)]
-
-    def update(self, current_speed):
-        self.animation_state()
-        self.rect.x -= current_speed
-        if self.rect.x <= -100:
-            self.kill()
+            img = pygame.image.load('./graphics/snail/snail1.png').convert_alpha()
+            
+        # Ajusta a imagem para caber perfeitamente no bloco do grid
+        self.image = pygame.transform.scale(img, (CELL_SIZE, CELL_SIZE))
+        self.rect = self.image.get_rect(topleft=(col * CELL_SIZE, row * CELL_SIZE))
 
 class FinishLine(pygame.sprite.Sprite):
-    def __init__(self):
+    def __init__(self, col, row):
         super().__init__()
         try:
-            self.image = pygame.image.load('./graphics/chegada.png').convert_alpha()
-        except FileNotFoundError:
-            print("Aviso: ./graphics/chegada.png não encontrada.")
-            self.image = pygame.Surface((50, 300))
-            self.image.fill('Yellow')
-            
-        self.rect = self.image.get_rect(midbottom=(700, 300))
+            img = pygame.image.load('./graphics/chegada.png').convert_alpha()
+            self.image = pygame.transform.scale(img, (80, 250))
+            self.rect = self.image.get_rect(center=(col * CELL_SIZE + CELL_SIZE//2, row * CELL_SIZE + CELL_SIZE//2))
+        except:
+            self.image = pygame.Surface((CELL_SIZE, CELL_SIZE * 3))
+            self.image.fill('Green')
+            self.rect = self.image.get_rect(center=(col * CELL_SIZE + CELL_SIZE//2, row * CELL_SIZE + CELL_SIZE//2))
 
-# --- Classe Gerenciadora do Jogo ---
+# --- Jogo Principal ---
 class Game:
     def __init__(self):
         pygame.init()
-        self.screen = pygame.display.set_mode((800, 400))
-        pygame.display.set_caption('Runner')
+        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        pygame.display.set_caption('Simulação A* (A-Estrela)')
         self.clock = pygame.time.Clock()
         
         try:
             font_path = resource_path('./font/Pixeltype.ttf')
             self.custom_font = pygame.font.Font(font_path, size=50)
-        except FileNotFoundError:
+            self.small_font = pygame.font.Font(font_path, size=35)
+        except:
             self.custom_font = pygame.font.SysFont(None, 50)
+            self.small_font = pygame.font.SysFont(None, 35)
 
-        self.state = 'START' 
-        self.start_time = 0
-        self.score = 0
-        self.target_score = 30 
-        self.current_speed = 6
+        self.state = 'START'
         
-        # --- SISTEMA DE CONFETES ---
-        self.confetti = [] # Lista para guardar os pedaços de confete
-        self.colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffffff']
+        # Início e fim centralizados verticalmente
+        self.start_pos = (1, ROWS // 2) 
+        self.goal_pos = (COLS - 3, ROWS // 2) 
         
-        self.obstacle_timer = pygame.USEREVENT + 1
-        pygame.time.set_timer(self.obstacle_timer, randint(900, 1500)) 
+        self.obstacles_pos = []
+        self.show_path_line = True 
 
-        try:
-            self.sky_surf = pygame.image.load('./graphics/Sky.png').convert()
-            self.ground_surf = pygame.image.load('./graphics/ground.png').convert()
-            self.game_over_surf = pygame.transform.scale(
-                pygame.image.load('./graphics/game_over1.png').convert_alpha(), (800, 400)
-            )
-            self.game_start_surf = pygame.transform.scale(
-                pygame.image.load('./graphics/game_start.png').convert_alpha(), (800, 400)
-            )
-        except FileNotFoundError:
-            self.sky_surf = pygame.Surface((800, 400)); self.sky_surf.fill('LightBlue')
-            self.ground_surf = pygame.Surface((800, 100)); self.ground_surf.fill('Brown')
-            self.game_over_surf = pygame.Surface((800, 400)); self.game_over_surf.fill('Black')
-            self.game_start_surf = pygame.Surface((800, 400)); self.game_start_surf.fill('Black')
+    def gerar_mapa_aleatorio(self):
+        """Gera 'paredões' com buracos forçando a IA a costurar o mapa."""
+        self.obstacles_pos.clear()
+        
+        col_atual = 5
+        while col_atual < COLS - 5:
+            # Sorteia onde fica o buraco na parede e o tamanho dele
+            buraco_y = randint(1, ROWS - 5)
+            tamanho_buraco = randint(3, 5) # 3 a 5 blocos de espaço para passar
+            
+            for row in range(ROWS):
+                # Se a linha atual não fizer parte do buraco, coloca um obstáculo
+                if not (buraco_y <= row < buraco_y + tamanho_buraco):
+                    self.obstacles_pos.append((col_atual, row))
+            
+            # Pula de 4 a 6 colunas para criar o próximo paredão
+            col_atual += randint(4, 6)
 
-        self.start_info = self.custom_font.render("Press 1 to START", False, 'Yellow')
-        self.start_info_rect = self.start_info.get_rect(midtop=(400, 10))
-        self.restart_info = self.custom_font.render("Press 1 to Restart", False, 'Yellow')
-
+    def setup_sprites(self):
         self.player_group = pygame.sprite.GroupSingle()
-        self.player_sprite = Player()
-        self.player_group.add(self.player_sprite)
+        self.player = Player(self.start_pos[0], self.start_pos[1])
+        self.player_group.add(self.player)
+        
         self.obstacle_group = pygame.sprite.Group()
-        self.finish_line_group = pygame.sprite.GroupSingle()
-
-    def display_score(self):
-        current_time = int(pygame.time.get_ticks() / 1000) - self.start_time
-        score_surf = self.custom_font.render(f'Score: {current_time}', False, (64, 64, 64))
-        score_rect = score_surf.get_rect(center=(400, 50))
-        self.screen.blit(score_surf, score_rect)
-        return current_time
-
-    # --- FUNÇÃO GERADORA DE CONFETES ---
-    def draw_confetti(self):
-        # A cada frame, tem uma chance de criar novos confetes no topo da tela
-        if randint(0, 10) > 2: # Controla a quantidade de confete caindo
-            x = randint(0, 800)
-            y = -10
-            speed_y = randint(2, 6)
-            speed_x = randint(-2, 2)
-            color = choice(self.colors)
-            size = randint(4, 10)
-            # Guarda: [x, y, speed_x, speed_y, cor, tamanho]
-            self.confetti.append([x, y, speed_x, speed_y, color, size])
-
-        # Atualiza a posição e desenha os confetes que já existem
-        for particle in self.confetti[:]:
-            particle[0] += particle[2] # Move de lado
-            particle[1] += particle[3] # Cai (gravidade do confete)
+        for col, row in self.obstacles_pos:
+            tipo = 'fly' if row < ROWS // 2 else 'snail'
+            self.obstacle_group.add(Obstacle(col, row, tipo))
             
-            # Desenha o retangulo na tela
-            pygame.draw.rect(self.screen, particle[4], (particle[0], particle[1], particle[5], particle[5]))
-            
-            # Remove o confete da lista se ele passar do chão para não pesar a memória
-            if particle[1] > 400:
-                self.confetti.remove(particle)
+        self.finish_group = pygame.sprite.GroupSingle()
+        self.finish_group.add(FinishLine(self.goal_pos[0], self.goal_pos[1]))
 
-    def handle_events(self):
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                exit()
+    def run_ai(self):
+        path = a_star(self.start_pos[0], self.start_pos[1], self.goal_pos[0], self.goal_pos[1], self.obstacles_pos)
+        
+        if path:
+            self.player.path = path
+            self.player.path_index = 0
+            self.state = 'MOVING'
+        else:
+            # Se gerar um mapa impossível por acidente, tenta de novo
+            self.gerar_mapa_aleatorio()
+            self.setup_sprites()
+            self.run_ai()
 
-            if self.state == 'START':
-                if event.type == pygame.KEYDOWN and event.key == pygame.K_1:
-                    self.state = 'PLAYING'
-                    self.start_time = int(pygame.time.get_ticks() / 1000)
+    def draw_path_line(self):
+        if self.player.path and self.show_path_line:
+            for i in range(len(self.player.path) - 1):
+                p1 = (self.player.path[i][0] * CELL_SIZE + CELL_SIZE//2, self.player.path[i][1] * CELL_SIZE + CELL_SIZE//2)
+                p2 = (self.player.path[i+1][0] * CELL_SIZE + CELL_SIZE//2, self.player.path[i+1][1] * CELL_SIZE + CELL_SIZE//2)
+                pygame.draw.line(self.screen, 'Red', p1, p2, 4)
 
-            elif self.state == 'PLAYING':
-                if event.type == self.obstacle_timer and self.score < self.target_score:
-                    self.obstacle_group.add(Obstacle(choice(['fly', 'snail', 'snail', 'snail'])))
-                    novo_tempo = randint(900, 1600)
-                    pygame.time.set_timer(self.obstacle_timer, novo_tempo)
-
-            elif self.state in ['GAME_OVER', 'VICTORY']:
-                if event.type == pygame.KEYDOWN and event.key == pygame.K_1:
-                    self.state = 'PLAYING'
-                    self.start_time = int(pygame.time.get_ticks() / 1000)
-                    self.player_sprite.reset_position()
-                    self.current_speed = 6
-                    self.finish_line_group.empty()
-                    self.obstacle_group.empty()
-                    self.confetti.clear() # Limpa os confetes antigos
-                    pygame.time.set_timer(self.obstacle_timer, randint(900, 1500))
-
-    def draw_start_screen(self):
-        self.screen.blit(self.game_start_surf, (0, 0))
-        self.screen.blit(self.start_info, self.start_info_rect)
-
-    def draw_playing_screen(self):
-        self.screen.blit(self.sky_surf, (0, 0))
-        self.screen.blit(self.ground_surf, (0, 300))
-        self.score = self.display_score()
-        
-        self.current_speed = 6 + (self.score // 5)
-        
-        if self.score >= self.target_score:
-            self.state = 'FINISHING'
-            self.obstacle_group.empty() 
-            self.finish_line_group.add(FinishLine()) 
-
-        self.player_group.draw(self.screen)
-        self.player_group.update()
-        
-        self.obstacle_group.update(self.current_speed)
-        self.obstacle_group.draw(self.screen)
-        
-        if pygame.sprite.spritecollide(self.player_group.sprite, self.obstacle_group, False):
-            self.obstacle_group.empty()
-            self.state = 'GAME_OVER'
-
-    def draw_finishing_screen(self):
-        self.screen.blit(self.sky_surf, (0, 0))
-        self.screen.blit(self.ground_surf, (0, 300))
-        
-        self.finish_line_group.draw(self.screen)
-        
-        self.player_group.draw(self.screen)
-        self.player_group.update()
-        
-        # Chama a chuva de confetes!
-        self.draw_confetti()
-        
-        # O personagem anda sozinho, ignorando inputs do teclado
-        self.player_sprite.rect.x += 3
-        
-        if pygame.sprite.spritecollide(self.player_sprite, self.finish_line_group, False):
-            self.state = 'VICTORY'
-
-    def draw_game_over_screen(self):
-        self.screen.blit(self.game_over_surf, (0, 0))
-        self.screen.blit(self.restart_info, (250, 20))
-
-        player_name = self.custom_font.render(f'Hello {user_name}', False, 'Yellow')
-        score_info = self.custom_font.render(f'Your Score: {self.score}', False, 'Yellow')
-        self.screen.blit(player_name, (280, 340))
-        self.screen.blit(score_info, (280, 370))
-
-    def draw_victory_screen(self):
-        self.screen.fill('#84a59d') 
-        
-        # Mantém a chuva de confetes na tela final!
-        self.draw_confetti()
-        
-        victory_text = self.custom_font.render('VOCE VENCEU!', False, 'White')
-        self.screen.blit(victory_text, (280, 150))
-        
-        score_info = self.custom_font.render(f'Final Score: {self.score}', False, 'White')
-        self.screen.blit(score_info, (280, 200))
-        
-        restart_text = self.custom_font.render("Press 1 to Play Again", False, 'White')
-        self.screen.blit(restart_text, (250, 280))
+    def draw_grid(self):
+        """Desenha uma grade sutil de fundo para dar cara de laboratório de IA"""
+        for x in range(0, WIDTH, CELL_SIZE):
+            pygame.draw.line(self.screen, '#E0E0E0', (x, 0), (x, HEIGHT))
+        for y in range(0, HEIGHT, CELL_SIZE):
+            pygame.draw.line(self.screen, '#E0E0E0', (0, y), (WIDTH, y))
 
     def run(self):
         while True:
-            self.handle_events()
+            # Fundo branco "Clean"
+            self.screen.fill('#F8F9FA') 
+            self.draw_grid()
+            
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    exit()
+                
+                if self.state in ['START', 'VICTORY'] and event.type == pygame.KEYDOWN and event.key == pygame.K_1:
+                    self.gerar_mapa_aleatorio()
+                    self.setup_sprites()
+                    self.run_ai()
+                    
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_h:
+                    self.show_path_line = not self.show_path_line
 
             if self.state == 'START':
-                self.draw_start_screen()
-            elif self.state == 'PLAYING':
-                self.draw_playing_screen()
-            elif self.state == 'FINISHING':
-                self.draw_finishing_screen()
-            elif self.state == 'GAME_OVER':
-                self.draw_game_over_screen()
+                text = self.custom_font.render("Pressione 1 para Gerar Labirinto e Iniciar IA", False, 'Black')
+                self.screen.blit(text, (WIDTH//2 - text.get_width()//2, HEIGHT // 2 - 50))
+            
+            elif self.state == 'MOVING':
+                self.draw_path_line()
+                
+                info_text = self.small_font.render("Algoritmo: A* (A-Estrela) | Heuristica: Manhattan | Aperte 'H' para esconder a linha", False, 'Black')
+                self.screen.blit(info_text, (20, 20))
+                
+                chegou = self.player.follow_path_smoothly()
+                if chegou:
+                    self.state = 'VICTORY'
+            
             elif self.state == 'VICTORY':
-                self.draw_victory_screen()
+                self.draw_path_line()
+                text = self.custom_font.render("OBJETIVO ALCANCADO! (Pressione 1 para novo labirinto)", False, 'Green')
+                self.screen.blit(text, (WIDTH//2 - text.get_width()//2, 50))
+
+            if self.state != 'START':
+                self.finish_group.draw(self.screen)
+                self.obstacle_group.draw(self.screen)
+                self.player_group.draw(self.screen)
 
             pygame.display.update()
             self.clock.tick(60)
 
-# --- Execução do Jogo ---
 if __name__ == '__main__':
     jogo = Game()
     jogo.run()
